@@ -43,9 +43,14 @@ class PineconeRetriever:
         self.embedding_model = embedding_model
         # Initialize Pinecone client
         import pinecone
+        # The Pinecone API key must be provided via the PINECONE_API_KEY environment variable.
+        # Example: export PINECONE_API_KEY="your_api_key_here"
         api_key = os.getenv("PINECONE_API_KEY")
         if not api_key:
-            raise ValueError("PINECONE_API_KEY environment variable not set")
+            raise ValueError(
+                "PINECONE_API_KEY environment variable not set. "
+                "Set it before running the agent, e.g., `export PINECONE_API_KEY=xxxx`."
+            )
         pinecone.init(api_key=api_key, environment=os.getenv("PINECONE_ENVIRONMENT", "us-west1-gcp"))
         self.index = pinecone.Index(index_name)
 
