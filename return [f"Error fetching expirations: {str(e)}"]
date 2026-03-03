@@ -1,0 +1,4 @@
+
+requirements.txt ``` yfinance>=0.2.28 google-adk>=0.1.0 python-dotenv>=1.0.0 ```
+
+**To fix the error, run:**
