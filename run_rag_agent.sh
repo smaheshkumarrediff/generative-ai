@@ -1,6 +1,11 @@
 #!/bin/bash
-# Export Pinecone API key (replace with your actual key if not using the example)
-export PINECONE_API_KEY=pcsk_5FSViY_Mq4G249mcPEpbnBecjR4uNecCd5Wzr9Jp5hfPP7QtXrKq1Cew9m9fvMznYWfwrg
+# Export Pinecone API key (can be overridden via command line argument)
+# Usage: ./run_rag_agent.sh [pinecone_api_key]
+# If an argument is provided, it will be used as the PINECONE_API_KEY value.
+
+if [ -n "$1" ]; then
+    export PINECONE_API_KEY="$1"
+fi
 
 # Export any additional environment variables required by your Google GenAI setup
 export GOOGLE_GENAI_USE_VERTEXAI=FALSE
