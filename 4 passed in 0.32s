@@ -1,0 +1,10 @@
+
+Explanation of the output
+
+- Each dot (`.`) represents a passed test case.
+- In this suite there are four test methods, so you’ll see four dots.
+- The line `[100%]` indicates that the test run completed fully.
+- `4 passed` confirms that all four tests succeeded.
+- `in 0.32s` shows the total execution time (the duration will differ on your machine).
+
+If any test fails, pytest would display an `F` (or more) and a detailed traceback indicating which assertion failed, allowing you to diagnose the issue.
