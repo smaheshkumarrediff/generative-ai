@@ -16,40 +16,86 @@ class SchwabAgent:
     trading options (e.g., covered calls).  The access token is obtained
     using the refresh token via the ``/oauth/token`` endpoint.
 
-    **Obtaining an Access Token & Refresh Token**
+    **Obtaining Schwab Access & Refresh Tokens**
 
-    1. **Register an application** on the Schwab Developer Portal to receive
-       ``client_id`` (also called ``apiKey``) and ``client_secret``.
-    2. **Request an authorization code** by directing the user to:
-       ``https://api.schwab.com/oauth/authorize`` with
-       ``response_type=code``, the ``client_id``, a ``redirect_uri``, and the
-       required ``scope`` (e.g., ``accounts read``).
-    3. **Exchange the code for tokens** by POSTing to
-       ``https://api.schwab.com/oauth/token`` with:
-       - ``grant_type=authorization_code``
-       - ``code`` (the code from step 2)
-       - ``redirect_uri`` (must match the one used in step 2)
-       - ``client_id`` and ``client_secret`` (sent via HTTP Basic Auth or form data)
-       The response includes:
-       - ``access_token`` – typically valid for 1 hour
-       - ``refresh_token`` – long‑lived token used to obtain new access tokens
-       - ``expires_in`` – seconds until expiration
-       - ``token_type`` (usually ``Bearer``)
-    4. **Refresh the access token** when it expires by POSTing again to
-       ``/oauth/token`` with ``grant_type=refresh_token`` and the stored
-       ``refresh_token``.  The new response may contain a new refresh token.
+    Schwab's API uses OAuth 2.0.  The typical flow is:
+
+    1. **Register an application** on the Schwab Developer Portal to obtain:
+       - ``client_id`` (also called ``apiKey``)
+       - ``client_secret``
+
+    2. **Request an authorization code**:
+       - Direct the user (or yourself in a test script) to the
+         authorization endpoint:
+         ``https://api.schwab.com/oauth/authorize``
+       - Include the ``response_type=code``, ``client_id``, ``redirect_uri``,
+         and the ``scope`` you need (e.g., ``accounts read``).
+       - After the user consents, Schwab redirects to the ``redirect_uri``
+         with a ``code`` query parameter.
+
+    3. **Exchange the code for tokens**:
+       - POST to ``https://api.schwab.com/oauth/token`` with:
+         - ``grant_type=authorization_code``
+         - ``code`` (the code from step 2)
+         - ``redirect_uri`` (must match the one used in step 2)
+         - ``client_id`` and ``client_secret`` (Basic Auth header or form data)
+       - The response contains:
+         - ``access_token`` – short‑lived (typically 1 hour)
+         - ``refresh_token`` – long‑lived token used to obtain new access tokens
+         - ``expires_in`` – seconds until expiration
+         - ``token_type`` (usually ``Bearer``)
+
+    4. **Refresh the access token** when it expires:
+       - POST to ``https://api.schwab.com/oauth/token`` again, this time with:
+         - ``grant_type=refresh_token``
+         - ``refresh_token`` (the refresh token you stored)
+         - ``client_id`` and ``client_secret``
+       - The response gives a new ``access_token`` (and optionally a new
+         ``refresh_token``).
 
     **Storing Tokens**
 
     - For local development you can keep the tokens in environment variables:
       ``SCHWAB_CLIENT_ID``, ``SCHWAB_SECRET``, ``SCHWAB_REFRESH_TOKEN``.
-    - In production store them securely (e.g., secret manager, encrypted DB) and
-      rotate them regularly.
+    - In production store them securely (e.g., secret manager,
+      encrypted database) and rotate them regularly.
 
-    The ``_authenticate`` method performs step 3 (or step 4 when refreshing) and
-    populates ``self.access_token`` and ``self.refresh_token``.  If the request
-    fails, a ``RuntimeError`` is raised with the HTTP status and response body
-    for easier debugging.
+    **Example (pseudo‑code)**
+
+    .. code-block:: python
+
+        import requests
+        import base64
+        import os
+
+        CLIENT_ID = os.getenv("SCHWAB_CLIENT_ID")
+        CLIENT_SECRET = os.getenv("SCHWAB_SECRET")
+        REDIRECT_URI = os.getenv("SCHWAB_REDIRECT_URI")
+
+        # 1️⃣ Get authorization code (user interaction required)
+        auth_url = (
+            "https://api.schwab.com/oauth/authorize"
+            f"?response_type=code&client_id={CLIENT_ID}"
+            f"&redirect_uri={REDIRECT_URI}&scope=accounts%20read"
+        )
+        # ... open browser, user logs in, gets redirected with ?code=...
+
+        # 2️⃣ Exchange code for tokens
+        token_url = "https://api.schwab.com/oauth/token"
+        auth_header = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
+        token_payload = {
+            "grant_type": "authorization_code",
+            "code": AUTHORIZATION_CODE,
+            "redirect_uri": REDIRECT_URI,
+        }
+        headers = {"Authorization": f"Basic {auth_header}"}
+        resp = requests.post(token_url, data=token_payload, headers=headers)
+        tokens = resp.json()
+        access_token = tokens["access_token"]
+        refresh_token = tokens["refresh_token"]
+
+        # 3️⃣ Use the access token in subsequent API calls
+        #    When it expires, repeat step 2 with grant_type=refresh_token.
     """
 
     def __init__(self):
