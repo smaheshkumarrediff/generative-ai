@@ -173,3 +173,6 @@ if __name__ == "__main__":
         underlying_cost_basis=140.0,  # example purchase price
     )
     print(json.dumps(result, indent=2))
+
+# Expose a root_agent for ADK discovery
+root_agent = SchwabAgent()
