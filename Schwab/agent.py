@@ -11,15 +11,54 @@ SCHWAB_REFRESH_TOKEN = os.getenv("SCHWAB_REFRESH_TOKEN")
 SCHWAB_BASE_URL = os.getenv("SCHWAB_BASE_URL", "https://api.schwab.com")
 
 class SchwabAgent:
+    """
+    SchwabAgent wraps the Schwab API OAuth flow and provides methods for
+    trading options (e.g., covered calls).  The access token is obtained
+    using the refresh token via the ``/oauth/token`` endpoint.
+
+    **Obtaining an Access Token & Refresh Token**
+
+    1. **Register an application** on the Schwab Developer Portal to receive
+       ``client_id`` (also called ``apiKey``) and ``client_secret``.
+    2. **Request an authorization code** by directing the user to:
+       ``https://api.schwab.com/oauth/authorize`` with
+       ``response_type=code``, the ``client_id``, a ``redirect_uri``, and the
+       required ``scope`` (e.g., ``accounts read``).
+    3. **Exchange the code for tokens** by POSTing to
+       ``https://api.schwab.com/oauth/token`` with:
+       - ``grant_type=authorization_code``
+       - ``code`` (the code from step 2)
+       - ``redirect_uri`` (must match the one used in step 2)
+       - ``client_id`` and ``client_secret`` (sent via HTTP Basic Auth or form data)
+       The response includes:
+       - ``access_token`` – typically valid for 1 hour
+       - ``refresh_token`` – long‑lived token used to obtain new access tokens
+       - ``expires_in`` – seconds until expiration
+       - ``token_type`` (usually ``Bearer``)
+    4. **Refresh the access token** when it expires by POSTing again to
+       ``/oauth/token`` with ``grant_type=refresh_token`` and the stored
+       ``refresh_token``.  The new response may contain a new refresh token.
+
+    **Storing Tokens**
+
+    - For local development you can keep the tokens in environment variables:
+      ``SCHWAB_CLIENT_ID``, ``SCHWAB_SECRET``, ``SCHWAB_REFRESH_TOKEN``.
+    - In production store them securely (e.g., secret manager, encrypted DB) and
+      rotate them regularly.
+
+    The ``_authenticate`` method performs step 3 (or step 4 when refreshing) and
+    populates ``self.access_token`` and ``self.refresh_token``.  If the request
+    fails, a ``RuntimeError`` is raised with the HTTP status and response body
+    for easier debugging.
+    """
+
     def __init__(self):
         self.session = requests.Session()
-        # Try to authenticate; if it fails we keep `self.authenticated = False`
-        # so that later calls raise a clear error instead of crashing the import.
+        # Attempt to authenticate during initialization; if it fails we keep
+        # ``self.authenticated`` as False so that later calls raise a clear error.
         self.authenticated = self._authenticate()
 
         if not self.authenticated:
-            # Provide a helpful message – the actual token endpoint is returning 404
-            # (likely because the URL or credentials are mis‑configured).
             raise RuntimeError(
                 "Failed to obtain Schwab access token. "
                 "Check that SCHWAB_CLIENT_ID, SCHWAB_SECRET, and SCHWAB_REFRESH_TOKEN "
@@ -27,7 +66,24 @@ class SchwabAgent:
             )
 
     def _authenticate(self) -> bool:
-        """Obtain an access token using the refresh token."""
+        """
+        Obtain an access token using the stored refresh token.
+
+        This method contacts the Schwab token endpoint
+        ``{SCHWAB_BASE_URL}/oauth/token`` with a payload of type
+        ``grant_type=refresh_token``.  On success the returned JSON is parsed
+        and ``self.access_token`` and ``self.refresh_token`` are set.
+
+        Returns
+        -------
+        bool
+            ``True`` if authentication succeeded, ``False`` otherwise.
+
+        Raises
+        ------
+        RuntimeError
+            If the HTTP request fails or the response indicates an error.
+        """
         token_url = f"{SCHWAB_BASE_URL}/oauth/token"
         payload = {
             "grant_type": "refresh_token",
@@ -39,7 +95,7 @@ class SchwabAgent:
             response = self.session.post(token_url, data=payload, timeout=10)
             response.raise_for_status()
         except requests.exceptions.HTTPError as http_err:
-            # The 404 we saw is an example – surface the real status code for debugging.
+            # Surface the actual status code and body for debugging.
             raise RuntimeError(
                 f"Authentication request failed with status {response.status_code}: {response.text}"
             ) from http_err
@@ -48,19 +104,23 @@ class SchwabAgent:
 
         token_data = response.json()
         self.access_token = token_data["access_token"]
+        # Schwab may return a new refresh token; if not, keep the old one.
         self.refresh_token = token_data.get("refresh_token", SCHWAB_REFRESH_TOKEN)
         return True
 
     def _auth_headers(self) -> Dict[str, str]:
+        """Return the Authorization header containing the current access token."""
         return {"Authorization": f"Bearer {self.access_token}"}
 
     def _get(self, endpoint: str, params: Optional[Dict] = None) -> Dict:
+        """Perform a GET request to ``{SCHWAB_BASE_URL}{endpoint}`` with auth headers."""
         url = f"{SCHWAB_BASE_URL}{endpoint}"
         resp = self.session.get(url, headers=self._auth_headers(), params=params, timeout=10)
         resp.raise_for_status()
         return resp.json()
 
     def _post(self, endpoint: str, json_body: Dict) -> Dict:
+        """Perform a POST request to ``{SCHWAB_BASE_URL}{endpoint}`` with auth headers."""
         url = f"{SCHWAB_BASE_URL}{endpoint}"
         resp = self.session.post(url, headers=self._auth_headers(), json=json_body, timeout=10)
         resp.raise_for_status()
@@ -70,7 +130,7 @@ class SchwabAgent:
     # Options chain and expirations
     # ----------------------------------------------------------------------
     def get_available_expirations(self, ticker: str) -> List[str]:
-        """Return a list of expiration dates (as YYYY-MM-DD strings) for the given ticker."""
+        """Return a list of expiration dates (YYYY‑MM‑DD) for the given ticker."""
         data = self._get(f"/marketdata/v1/options/expirations", {"symbol": ticker})
         return [exp["expirationDate"] for exp in data.get("expirations", [])]
 
@@ -104,11 +164,12 @@ class SchwabAgent:
         strike : float
             Strike price of the call option.
         expiration : str
-            Expiration date in YYYY-MM-DD format.
+            Expiration date in YYYY‑MM‑DD format.
         contracts : int, optional
             Number of contracts (default 1).
         premium : float, optional
-            Premium received per share. If not provided, the agent will query the market.
+            Premium received per share. If not provided, the method queries the
+            market for the current bid.
         underlying_cost_basis : float, optional
             Cost basis per share of the underlying stock you own.
 
@@ -130,12 +191,11 @@ class SchwabAgent:
             chain = self.get_options_chain(ticker, expiration)
             calls = chain.get("callExpirations", [{}])[0].get("calls", [])
             premium = next(
-                (c["bid"] for c in calls if float(c["strike"]) == strike), None
+                (float(c["bid"]) for c in calls if float(c["strike"]) == strike), None
             )
             if premium is None:
                 raise RuntimeError(f"Could not find market premium for strike {strike}.")
-            premium = float(premium)
-
+        
         # 3. Calculate theoretical max profit and max loss
         premium_total = premium * 100 * contracts
         if underlying_cost_basis is not None:
