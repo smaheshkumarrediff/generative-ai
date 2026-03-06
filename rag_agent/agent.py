@@ -6,7 +6,7 @@ from google.adk.runtime.behavior import Behavior
 from google.adk.runtime.behavior import Action
 from google.adk.runtime.events import Event
 from google.adk.runtime.types import Struct
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 # Simple RAG behavior for retrieval
 class RetrieveAction(Action):
@@ -38,18 +38,31 @@ class GenerateAnswerAction(Action):
 
 # Retriever that uses Pinecone to store and query document chunks
 class PineconeRetriever:
-    def __init__(self, index_name: str, embedding_model="text-embedding-3-small"):
+    def __init__(self, index_name: str, embedding_model="text-embedding-3-small", api_key: Optional[str] = None):
+        """
+        Initialize the PineconeRetriever.
+
+        Args:
+            index_name: Name of the Pinecone index that stores document chunks.
+            embedding_model: The embedding model to use (default: "text-embedding-3-small").
+            api_key: Optional API key. If not provided, the key is read from the
+                     PINECONE_API_KEY environment variable.
+
+        Raises:
+            ValueError: If no API key is found in the environment and none is passed.
+        """
         self.index_name = index_name
         self.embedding_model = embedding_model
         # Initialize Pinecone client
         import pinecone
-        # The Pinecone API key must be provided via the PINECONE_API_KEY environment variable.
+        # The Pinecone API key can be supplied either via the `api_key` argument
+        # or through the PINECONE_API_KEY environment variable.
         # Example: export PINECONE_API_KEY="your_api_key_here"
-        api_key = os.getenv("PINECONE_API_KEY")
+        api_key = api_key or os.getenv("PINECONE_API_KEY")
         if not api_key:
             raise ValueError(
-                "PINECONE_API_KEY environment variable not set. "
-                "Set it before running the agent, e.g., `export PINECONE_API_KEY=xxxx`."
+                "PINECONE_API_KEY environment variable not set and no api_key provided. "
+                "Set it via the environment or pass it explicitly to PineconeRetriever."
             )
         pinecone.init(api_key=api_key, environment=os.getenv("PINECONE_ENVIRONMENT", "us-west1-gcp"))
         self.index = pinecone.Index(index_name)
