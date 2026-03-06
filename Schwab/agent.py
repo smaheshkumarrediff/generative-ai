@@ -8,14 +8,25 @@ from datetime import datetime, timedelta
 SCHWAB_CLIENT_ID = os.getenv("SCHWAB_CLIENT_ID")
 SCHWAB_SECRET = os.getenv("SCHWAB_SECRET")
 SCHWAB_REFRESH_TOKEN = os.getenv("SCHWAB_REFRESH_TOKEN")
-SCHWAB_BASE_URL = "https://api.schwab.com"
+SCHWAB_BASE_URL = os.getenv("SCHWAB_BASE_URL", "https://api.schwab.com")
 
 class SchwabAgent:
     def __init__(self):
         self.session = requests.Session()
-        self._authenticate()
+        # Try to authenticate; if it fails we keep `self.authenticated = False`
+        # so that later calls raise a clear error instead of crashing the import.
+        self.authenticated = self._authenticate()
 
-    def _authenticate(self):
+        if not self.authenticated:
+            # Provide a helpful message – the actual token endpoint is returning 404
+            # (likely because the URL or credentials are mis‑configured).
+            raise RuntimeError(
+                "Failed to obtain Schwab access token. "
+                "Check that SCHWAB_CLIENT_ID, SCHWAB_SECRET, and SCHWAB_REFRESH_TOKEN "
+                "are set correctly and that the token endpoint URL is correct."
+            )
+
+    def _authenticate(self) -> bool:
         """Obtain an access token using the refresh token."""
         token_url = f"{SCHWAB_BASE_URL}/oauth/token"
         payload = {
@@ -24,24 +35,34 @@ class SchwabAgent:
             "client_secret": SCHWAB_SECRET,
             "refresh_token": SCHWAB_REFRESH_TOKEN,
         }
-        response = self.session.post(token_url, data=payload)
-        response.raise_for_status()
+        try:
+            response = self.session.post(token_url, data=payload, timeout=10)
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as http_err:
+            # The 404 we saw is an example – surface the real status code for debugging.
+            raise RuntimeError(
+                f"Authentication request failed with status {response.status_code}: {response.text}"
+            ) from http_err
+        except requests.exceptions.RequestException as req_err:
+            raise RuntimeError(f"Network error while authenticating: {req_err}") from req_err
+
         token_data = response.json()
         self.access_token = token_data["access_token"]
         self.refresh_token = token_data.get("refresh_token", SCHWAB_REFRESH_TOKEN)
+        return True
 
     def _auth_headers(self) -> Dict[str, str]:
         return {"Authorization": f"Bearer {self.access_token}"}
 
     def _get(self, endpoint: str, params: Optional[Dict] = None) -> Dict:
         url = f"{SCHWAB_BASE_URL}{endpoint}"
-        resp = self.session.get(url, headers=self._auth_headers(), params=params)
+        resp = self.session.get(url, headers=self._auth_headers(), params=params, timeout=10)
         resp.raise_for_status()
         return resp.json()
 
     def _post(self, endpoint: str, json_body: Dict) -> Dict:
         url = f"{SCHWAB_BASE_URL}{endpoint}"
-        resp = self.session.post(url, headers=self._auth_headers(), json=json_body)
+        resp = self.session.post(url, headers=self._auth_headers(), json=json_body, timeout=10)
         resp.raise_for_status()
         return resp.json()
 
@@ -97,8 +118,8 @@ class SchwabAgent:
             Summary of the trade including max profit, max loss, and order status.
         """
         # 1. Validate inputs
-        if not (0 < strike <= underlying_cost_basis * 2):  # simple sanity check
-            raise ValueError("Strike price seems unrealistic.")
+        if not (0 < strike):
+            raise ValueError("Strike price must be positive.")
         if not expiration:
             raise ValueError("Expiration date is required.")
         if contracts <= 0:
@@ -116,22 +137,18 @@ class SchwabAgent:
             premium = float(premium)
 
         # 3. Calculate theoretical max profit and max loss
-        #    - Max profit = premium * 100 * contracts (if underlying is called away)
-        #    - Max loss = (underlying_cost_basis - strike) * 100 * contracts - premium
-        #      (only applies if you bought the stock at cost_basis)
         premium_total = premium * 100 * contracts
         if underlying_cost_basis is not None:
-            # Loss if stock price falls to $0 (worst case) minus premium received
             max_loss = (underlying_cost_basis * 100 * contracts) - premium_total
         else:
-            max_loss = None  # cannot compute without cost basis
+            max_loss = None
 
         # 4. Place the order (simplified – actual order creation is more involved)
         order_payload = {
             "symbol": ticker,
             "orderType": "LIMIT",
             "session": "GTC",
-            "price": premium,  # limit price for the option
+            "price": premium,
             "quantity": contracts * 100,
             "instrument": "OPTION",
             "optionChains": [
@@ -153,7 +170,7 @@ class SchwabAgent:
             "contracts": contracts,
             "premium_received_per_contract": premium,
             "premium_total": premium_total,
-            "max_profit": premium_total,  # simplified
+            "max_profit": premium_total,
             "max_loss": max_loss,
             "order_status": order_status,
             "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -170,7 +187,7 @@ if __name__ == "__main__":
         strike=150.0,
         expiration="2025-01-17",
         contracts=1,
-        underlying_cost_basis=140.0,  # example purchase price
+        underlying_cost_basis=140.0,
     )
     print(json.dumps(result, indent=2))
 
