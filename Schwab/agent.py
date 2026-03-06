@@ -154,7 +154,28 @@ class SchwabAgent:
         self.access_token = token_data["access_token"]
         # Schwab may return a new refresh token; if not, keep the old one.
         self.refresh_token = token_data.get("refresh_token", SCHWAB_REFRESH_TOKEN)
+        print("[SchwabAgent] Access token acquired – expires in {} seconds".format(
+            token_data.get("expires_in", "unknown")))
         return True
+
+    def generate_access_token(self) -> str:
+        """
+        Public method that ensures an access token is available and returns it.
+
+        This method calls ``_authenticate`` if the token is missing or expired,
+        then returns the current ``access_token``.  It is useful when the
+        caller needs to programmatically obtain a fresh token without
+        instantiating the whole agent.
+
+        Returns
+        -------
+        str
+            The current Schwab access token.
+        """
+        if not self.authenticated:
+            self._authenticate()
+        print("[SchwabAgent] Returning generated access token")
+        return self.access_token
 
     def _auth_headers(self) -> Dict[str, str]:
         """Return the Authorization header containing the current access token."""
