@@ -8,6 +8,98 @@ from google.adk.runtime.events import Event
 from google.adk.runtime.types import Struct
 from typing import List, Dict, Optional
 
+"""
+Google ADK RAG Agent
+====================
+
+This module defines a simple Retrieval‑Augmented Generation (RAG) agent
+that uses Pinecone for vector storage and a language model for answer
+generation.  It also contains helper utilities for working with the
+Schwab API, including obtaining an **access token** and a **refresh token**.
+
+Obtaining Schwab Access & Refresh Tokens
+----------------------------------------
+
+Schwab's API uses OAuth 2.0.  The typical flow is:
+
+1. **Register an application** on the Schwab Developer Portal to obtain:
+   - ``client_id`` (also called ``apiKey``)
+   - ``client_secret``
+
+2. **Request an authorization code**:
+   - Direct the user (or yourself in a test script) to the
+     authorization endpoint:
+     ``https://api.schwab.com/oauth/authorize``
+   - Include the ``response_type=code``, ``client_id``, ``redirect_uri``,
+     and the ``scope`` you need (e.g., ``accounts read``).
+   - After the user consents, Schwab redirects to the ``redirect_uri``
+     with a ``code`` query parameter.
+
+3. **Exchange the code for tokens**:
+   - POST to ``https://api.schwab.com/oauth/token`` with:
+     - ``grant_type=authorization_code``
+     - ``code`` (the code from step 2)
+     - ``redirect_uri`` (must match the one used in step 2)
+     - ``client_id`` and ``client_secret`` (Basic Auth header or form data)
+   - The response contains:
+     - ``access_token`` – short‑lived (typically 1 hour)
+     - ``refresh_token`` – long‑lived token used to obtain new access tokens
+     - ``expires_in`` – seconds until expiration
+     - ``token_type`` (usually ``Bearer``)
+
+4. **Refresh the access token** when it expires:
+   - POST to ``https://api.schwab.com/oauth/token`` again, this time with:
+     - ``grant_type=refresh_token``
+     - ``refresh_token`` (the refresh token you stored)
+     - ``client_id`` and ``client_secret``
+   - The response gives a new ``access_token`` (and optionally a new
+     ``refresh_token``).
+
+**Storing Tokens**
+
+- For local development you can keep the tokens in environment variables:
+  ``SCHWAB_ACCESS_TOKEN`` and ``SCHWAB_REFRESH_TOKEN``.
+- In production you should store them securely (e.g., secret manager,
+  encrypted database) and rotate them regularly.
+
+**Example (pseudo‑code)**
+
+.. code-block:: python
+
+    import requests
+    import base64
+    import os
+
+    CLIENT_ID = os.getenv("SCHWAB_CLIENT_ID")
+    CLIENT_SECRET = os.getenv("SCHWAB_CLIENT_SECRET")
+    REDIRECT_URI = os.getenv("SCHWAB_REDIRECT_URI")
+
+    # 1️⃣ Get authorization code (user interaction required)
+    auth_url = (
+        "https://api.schwab.com/oauth/authorize"
+        f"?response_type=code&client_id={CLIENT_ID}"
+        f"&redirect_uri={REDIRECT_URI}&scope=accounts%20read"
+    )
+    # ... open browser, user logs in, gets redirected with ?code=...
+
+    # 2️⃣ Exchange code for tokens
+    token_url = "https://api.schwab.com/oauth/token"
+    auth_header = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
+    token_payload = {
+        "grant_type": "authorization_code",
+        "code": AUTHORIZATION_CODE,
+        "redirect_uri": REDIRECT_URI,
+    }
+    headers = {"Authorization": f"Basic {auth_header}"}
+    resp = requests.post(token_url, data=token_payload, headers=headers)
+    tokens = resp.json()
+    access_token = tokens["access_token"]
+    refresh_token = tokens["refresh_token"]
+
+    # 3️⃣ Use the access token in subsequent API calls
+    #    When it expires, repeat step 2 with grant_type=refresh_token.
+"""
+
 # Simple RAG behavior for retrieval
 class RetrieveAction(Action):
     def __init__(self, retriever):
