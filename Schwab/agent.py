@@ -110,6 +110,8 @@ class SchwabAgent:
                 "Check that SCHWAB_CLIENT_ID, SCHWAB_SECRET, and SCHWAB_REFRESH_TOKEN "
                 "are set correctly and that the token endpoint URL is correct."
             )
+        # Print a simple message to indicate successful initialization
+        print("[SchwabAgent] Authentication successful – ready for API calls.")
 
     def _authenticate(self) -> bool:
         """
@@ -288,6 +290,7 @@ class SchwabAgent:
 if __name__ == "__main__":
     # Simple demo – replace with real values or environment variables
     agent = SchwabAgent()
+    print("[SchwabAgent] Executing example covered‑call trade...")
     result = agent.execute_covered_call(
         ticker="AAPL",
         strike=150.0,
