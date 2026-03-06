@@ -71,6 +71,17 @@ class PineconeRetriever:
         # Join chunks into a single string
         return "\n\n---\n\n".join(context_chunks)
 
+# Utility to list the supported ADK run modes
+def list_adk_modes() -> List[str]:
+    """
+    Return a list of supported ADK execution modes.
+    Common modes include:
+      - "local": Run the agent locally for development and testing.
+      - "cloud": Deploy and run the agent on Google Cloud (e.g., Cloud Run, GKE).
+      - "test": Execute unit/integration tests that may spin up temporary environments.
+    """
+    return ["local", "cloud", "test"]
+
 async def build_rag_agent():
     # TODO: Replace with real implementations of retriever and LLM
     retriever = PineconeRetriever(index_name="document-chunks")  # ensure index exists
@@ -97,4 +108,6 @@ async def build_rag_agent():
 
 if __name__ == "__main__":
     import asyncio
+    # Print supported ADK run modes when the module is executed directly
+    print("Supported ADK run modes:", list_adk_modes())
     asyncio.run(build_rag_agent())
